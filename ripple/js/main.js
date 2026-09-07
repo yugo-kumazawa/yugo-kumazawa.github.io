@@ -158,9 +158,15 @@ async function useSvgText(text, name) {
 
 async function loadSample(name) {
   try {
-    const res = await fetch(`samples/${name}.svg`);
-    if (!res.ok) throw new Error(`サンプルを取得できませんでした（${res.status}）。`);
-    await useSvgText(await res.text(), name);
+    // 単一ファイル版ではサンプルが埋め込まれている。無ければ取りに行く。
+    const inline = globalThis.RIPPLE_SAMPLES?.[name];
+    let text = inline;
+    if (text === undefined) {
+      const res = await fetch(`samples/${name}.svg`);
+      if (!res.ok) throw new Error(`サンプルを取得できませんでした（${res.status}）。`);
+      text = await res.text();
+    }
+    await useSvgText(text, name);
   } catch (err) {
     const notice = $('notice');
     notice.textContent = `${err.message} ローカルで開いている場合は、簡易サーバー経由で表示してください。`;
@@ -182,6 +188,13 @@ async function readFile(file) {
 }
 
 // ---------------------------------------------------------------- 描画
+
+function showError(message) {
+  const notice = $('notice');
+  notice.textContent = message;
+  notice.hidden = false;
+  notice.classList.add('notice--error');
+}
 
 let pending = false;
 
@@ -519,8 +532,17 @@ function setupInputs() {
   $('fit').addEventListener('click', resetView);
   $('showOrigin').addEventListener('change', placeOriginHandle);
 
-  $('exportSvg').addEventListener('click', () => {
-    if (latest) exportSvg(latest.svg, safeName(sourceName, 'svg'));
+  $('exportSvg').addEventListener('click', async () => {
+    if (!latest) return;
+    const btn = $('exportSvg');
+    btn.disabled = true;
+    try {
+      await exportSvg(latest.svg, safeName(sourceName, 'svg'));
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      btn.disabled = false;
+    }
   });
   $('exportPng').addEventListener('click', async () => {
     if (!latest) return;
@@ -529,10 +551,7 @@ function setupInputs() {
     try {
       await exportPng(latest.svg, safeName(sourceName, 'png'), Number($('pngScale').value));
     } catch (err) {
-      const notice = $('notice');
-      notice.textContent = err.message;
-      notice.hidden = false;
-      notice.classList.add('notice--error');
+      showError(err.message);
     } finally {
       btn.disabled = false;
     }

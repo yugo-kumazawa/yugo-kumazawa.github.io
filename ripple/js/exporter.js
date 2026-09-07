@@ -4,7 +4,23 @@
 
 import { serialize } from './compose.js';
 
-function download(blob, filename) {
+/**
+ * 保存。埋め込み先が保存用の窓口を持っていればそちらへ渡し、
+ * 無ければ通常の <a download> で落とす。
+ * 素の Web サーバー上では後者だけが使われる。
+ */
+async function download(blob, filename) {
+  const save = await globalThis.claude?.use?.('downloads').catch(() => null);
+  if (save) {
+    try {
+      await save.save({ filename, data: blob });
+      return;
+    } catch (err) {
+      if (err?.code === 'declined' || err?.code === 'rate_limited') return; // 利用者が断った
+      // それ以外は下の従来手段に落とす
+    }
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -16,9 +32,9 @@ function download(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function exportSvg(svg, filename) {
+export async function exportSvg(svg, filename) {
   const blob = new Blob([serialize(svg)], { type: 'image/svg+xml;charset=utf-8' });
-  download(blob, filename);
+  await download(blob, filename);
 }
 
 /**
@@ -44,7 +60,7 @@ export async function exportPng(svg, filename, scale = 2) {
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG に変換できませんでした。'))), 'image/png');
     });
-    download(blob, filename);
+    await download(blob, filename);
   } finally {
     URL.revokeObjectURL(url);
   }

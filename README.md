@@ -71,6 +71,21 @@ python3 -m http.server 8000
 # http://localhost:8000/ripple/
 ```
 
+## 単一ファイル版
+
+`ripple/` の中身を 1 枚の HTML にまとめられます。配布したり、
+サーバーを立てずに開いたりする場合に使います。
+
+```sh
+node tools/build-standalone.mjs
+#   dist/ripple.html          単体で開ける HTML（file:// でも動作）
+#   dist/ripple-fragment.html 外側の枠を持たない断片（埋め込み用）
+```
+
+サンプル図形は埋め込まれるため、取得のための通信は発生しません。
+保存は、埋め込み先が保存用の窓口を持っていればそちらへ渡し、
+無ければ通常のダウンロードになります。
+
 ## 構成
 
 ```
@@ -87,4 +102,6 @@ ripple/
     compose.js        出力 SVG の組み立て
     exporter.js       SVG / PNG の保存
   samples/            サンプル図形
+tools/
+  build-standalone.mjs  単一ファイル版の生成
 ```
