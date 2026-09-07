@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ripple — SVG 波紋ジェネレーター</title>
+<meta name="description" content="任意の SVG を等差・等比で拡大複製し、複数色で塗り分けた波紋状のグラフィックを作るブラウザツール。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='none' stroke='%232f6df0' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='8.5' fill='none' stroke='%232f6df0' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%232f6df0'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../assets/css/base.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body class="app">
+
+<header class="app__bar">
+  <a class="app__home" href="../">&larr; ツール一覧</a>
+  <h1 class="app__title">Ripple</h1>
+  <p class="app__lead">SVG を拡大しながら重ねて波紋をつくる</p>
+</header>
+
+<main class="app__body">
+
+  <!-- ============ 操作パネル ============ -->
+  <aside class="panel" id="panel">
+
+    <section class="group">
+      <h2 class="group__title">ソース</h2>
+
+      <div class="drop" id="drop" tabindex="0" role="button"
+           aria-label="SVG ファイルを選択、またはドラッグ＆ドロップ">
+        <strong>SVG をドロップ</strong>
+        <span>またはクリックして選択</span>
+      </div>
+      <input type="file" id="file" accept=".svg,image/svg+xml" hidden>
+
+      <p class="source-name" id="sourceName">サンプルを読み込み中…</p>
+
+      <div class="samples">
+        <span class="samples__label">サンプル</span>
+        <button type="button" class="chip" data-sample="burst">星形</button>
+        <button type="button" class="chip" data-sample="star">星</button>
+        <button type="button" class="chip" data-sample="hexagon">六角形</button>
+        <button type="button" class="chip" data-sample="circle">円</button>
+        <button type="button" class="chip" data-sample="petal">花弁</button>
+        <button type="button" class="chip" data-sample="rounded">角丸</button>
+      </div>
+
+      <p class="notice" id="notice" hidden></p>
+    </section>
+
+    <section class="group">
+      <h2 class="group__title">複製</h2>
+
+      <div class="field">
+        <label for="count">段数 <output id="countOut">12</output></label>
+        <input type="range" id="count" min="1" max="120" step="1" value="12">
+      </div>
+
+      <div class="field field--pair">
+        <div>
+          <label for="scaleStart">開始倍率</label>
+          <input type="number" id="scaleStart" min="0.001" max="50" step="0.01" value="0.12">
+        </div>
+        <div>
+          <label for="scaleEnd">終了倍率</label>
+          <input type="number" id="scaleEnd" min="0.001" max="50" step="0.01" value="1">
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="field__label">分布</span>
+        <div class="seg" role="radiogroup" aria-label="分布">
+          <label><input type="radio" name="distribution" value="arithmetic" checked><span>等差</span></label>
+          <label><input type="radio" name="distribution" value="geometric"><span>等比</span></label>
+        </div>
+        <p class="hint" id="distHint">段の差が一定。等間隔の同心円になる。</p>
+      </div>
+
+      <div class="field">
+        <label for="rotationStep">段ごとの回転 <output id="rotOut">8</output>°</label>
+        <input type="range" id="rotationStep" min="-90" max="90" step="0.5" value="8">
+        <p class="hint">1 段ごとに足していく角度。0 で回転なし。</p>
+      </div>
+
+      <div class="field">
+        <span class="field__label">描画順</span>
+        <div class="seg" role="radiogroup" aria-label="描画順">
+          <label><input type="radio" name="order" value="outer-first" checked><span>大きい順</span></label>
+          <label><input type="radio" name="order" value="inner-first"><span>小さい順</span></label>
+        </div>
+        <p class="hint">塗りつぶしの図形は「大きい順」でないと内側の段が隠れる。</p>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2 class="group__title">原点</h2>
+      <p class="hint">拡大の中心。プレビュー上の &#9678; を直接ドラッグしても動かせる。</p>
+
+      <div class="anchors" role="group" aria-label="原点プリセット">
+        <button type="button" data-anchor="0,0" aria-label="左上"></button>
+        <button type="button" data-anchor="0.5,0" aria-label="上"></button>
+        <button type="button" data-anchor="1,0" aria-label="右上"></button>
+        <button type="button" data-anchor="0,0.5" aria-label="左"></button>
+        <button type="button" data-anchor="0.5,0.5" aria-label="中央" class="is-active"></button>
+        <button type="button" data-anchor="1,0.5" aria-label="右"></button>
+        <button type="button" data-anchor="0,1" aria-label="左下"></button>
+        <button type="button" data-anchor="0.5,1" aria-label="下"></button>
+        <button type="button" data-anchor="1,1" aria-label="右下"></button>
+      </div>
+
+      <div class="field field--pair">
+        <div>
+          <label for="originX">X（0–1）</label>
+          <input type="number" id="originX" min="-2" max="3" step="0.01" value="0.5">
+        </div>
+        <div>
+          <label for="originY">Y（0–1）</label>
+          <input type="number" id="originY" min="-2" max="3" step="0.01" value="0.5">
+        </div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2 class="group__title">塗り</h2>
+
+      <div class="field">
+        <span class="field__label">塗り対象</span>
+        <div class="seg seg--4" role="radiogroup" aria-label="塗り対象">
+          <label><input type="radio" name="paintMode" value="fill" checked><span>塗り</span></label>
+          <label><input type="radio" name="paintMode" value="stroke"><span>線</span></label>
+          <label><input type="radio" name="paintMode" value="both"><span>両方</span></label>
+          <label><input type="radio" name="paintMode" value="original"><span>元の色</span></label>
+        </div>
+      </div>
+
+      <div class="field" id="strokeField">
+        <label for="strokeWidth">線幅 <output id="strokeOut">2</output></label>
+        <input type="range" id="strokeWidth" min="0.1" max="40" step="0.1" value="2">
+        <label class="check">
+          <input type="checkbox" id="constantStroke" checked>
+          <span>拡大しても線幅を一定に保つ</span>
+        </label>
+      </div>
+
+      <div class="field" id="colorField">
+        <span class="field__label">色</span>
+        <div class="stops" id="stops"></div>
+        <button type="button" class="chip chip--add" id="addStop">＋ 色を追加</button>
+      </div>
+
+      <div class="field field--pair" id="colorModeField">
+        <div>
+          <span class="field__label">割り当て</span>
+          <select id="colorMode">
+            <option value="ramp">補間（端から端へ）</option>
+            <option value="cycle" selected>循環（順に繰り返す）</option>
+          </select>
+        </div>
+        <div>
+          <span class="field__label">補間方式</span>
+          <select id="colorSpace">
+            <option value="oklab">OKLab</option>
+            <option value="srgb">sRGB</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field field--pair">
+        <div>
+          <label for="opacityStart">不透明度・内 <output id="opStartOut">1</output></label>
+          <input type="range" id="opacityStart" min="0" max="1" step="0.01" value="1">
+        </div>
+        <div>
+          <label for="opacityEnd">不透明度・外 <output id="opEndOut">1</output></label>
+          <input type="range" id="opacityEnd" min="0" max="1" step="0.01" value="1">
+        </div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2 class="group__title">フレーム</h2>
+
+      <div class="field">
+        <span class="field__label">縦横比</span>
+        <select id="aspectPreset">
+          <option value="auto">自動（全体が収まる）</option>
+          <option value="1">1 : 1</option>
+          <option value="1.5" selected>3 : 2</option>
+          <option value="1.3333">4 : 3</option>
+          <option value="1.7778">16 : 9</option>
+          <option value="0.75">3 : 4</option>
+          <option value="custom">自由入力</option>
+        </select>
+      </div>
+
+      <div class="field field--pair" id="customAspectField" hidden>
+        <div>
+          <label for="aspectW">幅の比</label>
+          <input type="number" id="aspectW" min="1" max="100" step="1" value="3">
+        </div>
+        <div>
+          <label for="aspectH">高さの比</label>
+          <input type="number" id="aspectH" min="1" max="100" step="1" value="2">
+        </div>
+      </div>
+
+      <div class="field" id="zoomField">
+        <label for="zoom">ズーム <output id="zoomOut">130</output>%</label>
+        <input type="range" id="zoom" min="100" max="400" step="1" value="130">
+        <p class="hint">100% で全段が収まる。上げるほど外側の段がフレームからはみ出し、切り落とされて背景のように働く。</p>
+      </div>
+
+      <div class="field" id="frameCenterField">
+        <span class="field__label">フレームの中心</span>
+        <div class="seg" role="radiogroup" aria-label="フレームの中心">
+          <label><input type="radio" name="frameCenter" value="origin" checked><span>原点</span></label>
+          <label><input type="radio" name="frameCenter" value="bounds"><span>図形全体</span></label>
+        </div>
+      </div>
+
+      <div class="field field--pair">
+        <div>
+          <label for="outputWidth">出力幅 px</label>
+          <input type="number" id="outputWidth" min="64" max="8000" step="10" value="1200">
+        </div>
+        <div>
+          <label for="padding">余白 % <output id="padOut">4</output></label>
+          <input type="range" id="padding" min="0" max="50" step="1" value="4">
+        </div>
+      </div>
+
+      <div class="field field--pair">
+        <div>
+          <label for="background">背景色</label>
+          <input type="color" id="background" value="#eceae4">
+        </div>
+        <div>
+          <span class="field__label">背景</span>
+          <label class="check">
+            <input type="checkbox" id="transparentBackground">
+            <span>透明にする</span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2 class="group__title">書き出し</h2>
+      <div class="field field--pair">
+        <button type="button" class="btn btn--primary" id="exportSvg">SVG を保存</button>
+        <button type="button" class="btn" id="exportPng">PNG を保存</button>
+      </div>
+      <div class="field">
+        <label for="pngScale">PNG 倍率 <output id="pngOut">2</output>×</label>
+        <input type="range" id="pngScale" min="1" max="8" step="1" value="2">
+        <p class="hint" id="pngSize"></p>
+      </div>
+      <button type="button" class="btn btn--quiet" id="reset">設定を初期値に戻す</button>
+    </section>
+
+  </aside>
+
+  <!-- ============ プレビュー ============ -->
+  <section class="stage">
+    <div class="stage__bar">
+      <span class="stage__info" id="stageInfo"></span>
+      <span class="stage__spacer"></span>
+      <button type="button" class="btn btn--quiet" id="fit">全体表示</button>
+      <label class="check check--inline">
+        <input type="checkbox" id="showOrigin" checked>
+        <span>原点を表示</span>
+      </label>
+    </div>
+    <div class="stage__view" id="view">
+      <div class="stage__canvas" id="canvas"></div>
+      <button type="button" class="origin-handle" id="originHandle" hidden
+              aria-label="原点をドラッグして移動"></button>
+    </div>
+    <p class="stage__hint">ホイールで拡大縮小 / 背景をドラッグで移動</p>
+  </section>
+
+</main>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

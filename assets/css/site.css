@@ -1,0 +1,74 @@
+/* ツール一覧ページ。 */
+
+.site {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 64px 24px 80px;
+}
+
+.site__title {
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: .01em;
+}
+.site__lead {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.tools {
+  display: grid;
+  gap: 12px;
+  margin-top: 32px;
+  padding: 0;
+  list-style: none;
+}
+
+.tool {
+  display: block;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  transition: border-color .12s, box-shadow .12s, transform .12s;
+}
+.tool:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.tool__name {
+  font-size: 15px;
+  font-weight: 650;
+}
+.tool__desc {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.tool__tags {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.tool__tag {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.site__foot {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-muted);
+}
