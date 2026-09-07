@@ -10,6 +10,7 @@ import { scaleSeries, opacitySeries } from './series.js';
 import { buildColors } from './color.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const XLINK_NS = 'http://www.w3.org/1999/xlink';
 const UNIT_ID = 'ripple-unit';
 
 /** vector-effect は継承されないので、図形要素に直接付ける必要がある。 */
@@ -201,6 +202,9 @@ export function compose(source, settings) {
     const angle = i * rotationStep;
     const use = document.createElementNS(SVG_NS, 'use');
     use.setAttribute('href', `#${UNIT_ID}`);
+    // SVG 1.1 しか解さない読み手（Illustrator など）は xlink:href しか見ない。
+    // 両方書いておかないと、そうしたアプリでは中身が空のまま開く。
+    use.setAttributeNS(XLINK_NS, 'xlink:href', `#${UNIT_ID}`);
 
     // 原点を動かさずに回して拡大するので、原点へ寄せて変換して戻す
     const parts = [`translate(${round(ox)} ${round(oy)})`];
@@ -269,7 +273,14 @@ export function compose(source, settings) {
 export function serialize(svg) {
   const clone = svg.cloneNode(true);
   clone.setAttribute('xmlns', SVG_NS);
-  clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+  clone.setAttribute('xmlns:xlink', XLINK_NS);
+
+  // プレビューは画面に収めるため style で寸法を上書きしている。
+  // それが残ると width / height 属性より強く効いてしまうので、外に出す前に落とす。
+  clone.style.removeProperty('width');
+  clone.style.removeProperty('height');
+  if (!clone.getAttribute('style')) clone.removeAttribute('style');
+
   const xml = new XMLSerializer().serializeToString(clone);
   return `<?xml version="1.0" encoding="UTF-8"?>\n${xml}\n`;
 }

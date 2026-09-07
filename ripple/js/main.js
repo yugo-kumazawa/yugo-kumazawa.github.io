@@ -11,6 +11,28 @@ const STORAGE_KEY = 'ripple.settings.v1';
 
 const DEFAULT_STOPS = ['#e08a80', '#6b74d8', '#b6c0dc', '#dfa96a'];
 
+/**
+ * 数値項目の既定値。入力を消している最中に 0 として読まれて
+ * 図が潰れてしまわないよう、空欄のあいだはここへ退避する。
+ */
+const DEFAULTS = {
+  count: 12,
+  scaleStart: 0.12,
+  scaleEnd: 1,
+  rotationStep: 8,
+  originX: 0.5,
+  originY: 0.5,
+  strokeWidth: 2,
+  opacityStart: 1,
+  opacityEnd: 1,
+  padding: 4,
+  zoom: 130,
+  outputWidth: 1200,
+  aspectW: 3,
+  aspectH: 2,
+  pngScale: 2,
+};
+
 /** プレビューの見え方。生成結果そのものとは別に持つ。 */
 const view = { zoom: 1, panX: 0, panY: 0 };
 
@@ -22,12 +44,20 @@ let frameAtDragStart = null;
 
 // ---------------------------------------------------------------- 設定
 
+/** 数値項目を読む。空欄や読めない値のときは既定値に落とす。 */
+function num(id) {
+  const raw = $(id)?.value.trim() ?? '';
+  if (raw === '') return DEFAULTS[id];
+  const v = Number(raw);
+  return Number.isFinite(v) ? v : DEFAULTS[id];
+}
+
 function currentAspect() {
   const preset = $('aspectPreset').value;
   if (preset === 'auto') return null;
   if (preset === 'custom') {
-    const w = Math.max(1, Number($('aspectW').value) || 1);
-    const h = Math.max(1, Number($('aspectH').value) || 1);
+    const w = Math.max(1, num('aspectW'));
+    const h = Math.max(1, num('aspectH'));
     return w / h;
   }
   return Number(preset);
@@ -36,36 +66,36 @@ function currentAspect() {
 function readSettings() {
   const aspect = currentAspect();
   return {
-    count: Number($('count').value),
-    scaleStart: Number($('scaleStart').value),
-    scaleEnd: Number($('scaleEnd').value),
+    count: num('count'),
+    scaleStart: num('scaleStart'),
+    scaleEnd: num('scaleEnd'),
     distribution: radio('distribution'),
-    rotationStep: Number($('rotationStep').value),
+    rotationStep: num('rotationStep'),
 
-    originX: Number($('originX').value),
-    originY: Number($('originY').value),
+    originX: num('originX'),
+    originY: num('originY'),
 
     paintMode: radio('paintMode'),
-    strokeWidth: Number($('strokeWidth').value),
+    strokeWidth: num('strokeWidth'),
     constantStroke: $('constantStroke').checked,
 
     colorStops: stops,
     colorMode: $('colorMode').value,
     colorSpace: $('colorSpace').value,
-    opacityStart: Number($('opacityStart').value),
-    opacityEnd: Number($('opacityEnd').value),
+    opacityStart: num('opacityStart'),
+    opacityEnd: num('opacityEnd'),
 
     order: radio('order'),
-    padding: Number($('padding').value),
+    padding: num('padding'),
 
     background: $('background').value,
     transparentBackground: $('transparentBackground').checked,
 
     frameMode: aspect === null ? 'auto' : 'fixed',
     aspect: aspect ?? 1,
-    zoom: Number($('zoom').value),
+    zoom: num('zoom'),
     frameCenter: radio('frameCenter'),
-    outputWidth: Number($('outputWidth').value),
+    outputWidth: num('outputWidth'),
   };
 }
 
@@ -280,20 +310,13 @@ function updateInfo() {
   $('stageInfo').textContent =
     `${w} × ${h} px ・ ${latest.scales.length} 段 ・ 倍率 ${first.toFixed(3)} → ${last.toFixed(3)}`;
 
-  const mult = Number($('pngScale').value);
+  const mult = num('pngScale');
   $('pngSize').textContent = `書き出しサイズ ${Math.round(w * mult)} × ${Math.round(h * mult)} px`;
 }
 
-/** スライダーの数値表示と、状況に応じた項目の出し入れ。 */
+/** スライダーの位置合わせと、状況に応じた項目の出し入れ。 */
 function syncOutputs() {
-  $('countOut').value = $('count').value;
-  $('rotOut').value = $('rotationStep').value;
-  $('strokeOut').value = $('strokeWidth').value;
-  $('opStartOut').value = $('opacityStart').value;
-  $('opEndOut').value = $('opacityEnd').value;
-  $('padOut').value = $('padding').value;
-  $('zoomOut').value = $('zoom').value;
-  $('pngOut').value = $('pngScale').value;
+  syncRanges();
 
   $('distHint').textContent = radio('distribution') === 'geometric'
     ? '段の比が一定。外へ行くほど間隔が広がる。'
@@ -309,6 +332,37 @@ function syncOutputs() {
   $('zoomField').hidden = isAuto;
   $('frameCenterField').hidden = isAuto;
   $('outputWidth').disabled = isAuto;
+}
+
+/**
+ * 数値入力とスライダーの対応づけ。
+ *
+ * 正となる値は数値入力のほうが持つ。スライダーは掴んで動かすための
+ * 補助で、こちらのほうが範囲が狭い。数値に範囲外の値を入れても
+ * 捨てずに保ち、スライダーだけが端で止まる。
+ */
+function pairedRanges() {
+  return [...document.querySelectorAll('input[type="range"][id$="Range"]')]
+    .map((range) => ({ range, number: $(range.id.slice(0, -'Range'.length)) }))
+    .filter((pair) => pair.number);
+}
+
+function syncRanges() {
+  for (const { range, number } of pairedRanges()) {
+    const v = Number(number.value);
+    if (!Number.isFinite(v)) continue;
+    const min = Number(range.min);
+    const max = Number(range.max);
+    range.value = String(Math.min(max, Math.max(min, v)));
+  }
+}
+
+function setupRangePairs() {
+  for (const { range, number } of pairedRanges()) {
+    range.addEventListener('input', () => {
+      number.value = range.value;
+    });
+  }
 }
 
 // ---------------------------------------------------------------- 表示操作
@@ -376,8 +430,8 @@ function setupOriginDrag() {
     drag = {
       x: e.clientX,
       y: e.clientY,
-      originX: Number($('originX').value),
-      originY: Number($('originY').value),
+      originX: num('originX'),
+      originY: num('originY'),
     };
     handle.setPointerCapture(e.pointerId);
   });
@@ -403,8 +457,8 @@ function setupOriginDrag() {
 }
 
 function markAnchorPreset() {
-  const x = Number($('originX').value);
-  const y = Number($('originY').value);
+  const x = num('originX');
+  const y = num('originY');
   for (const btn of document.querySelectorAll('[data-anchor]')) {
     const [ax, ay] = btn.dataset.anchor.split(',').map(Number);
     btn.classList.toggle('is-active', Math.abs(ax - x) < 0.001 && Math.abs(ay - y) < 0.001);
@@ -417,7 +471,14 @@ function saveSettings() {
   try {
     const s = readSettings();
     delete s.colorStops;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...s, stops, aspectPreset: $('aspectPreset').value }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...s,
+      stops,
+      aspectPreset: $('aspectPreset').value,
+      pngScale: num('pngScale'),
+      aspectW: num('aspectW'),
+      aspectH: num('aspectH'),
+    }));
   } catch {
     // 保存できなくても動作に支障はないので黙って続ける
   }
@@ -447,6 +508,9 @@ function restoreSettings() {
   };
 
   setValue('count', saved.count);
+  setValue('pngScale', saved.pngScale);
+  setValue('aspectW', saved.aspectW);
+  setValue('aspectH', saved.aspectH);
   setValue('scaleStart', saved.scaleStart);
   setValue('scaleEnd', saved.scaleEnd);
   setValue('rotationStep', saved.rotationStep);
@@ -549,7 +613,7 @@ function setupInputs() {
     const btn = $('exportPng');
     btn.disabled = true;
     try {
-      await exportPng(latest.svg, safeName(sourceName, 'png'), Number($('pngScale').value));
+      await exportPng(latest.svg, safeName(sourceName, 'png'), num('pngScale'));
     } catch (err) {
       showError(err.message);
     } finally {
@@ -568,6 +632,7 @@ function setupInputs() {
 restoreSettings();
 renderStops();
 markAnchorPreset();
+setupRangePairs();
 setupInputs();
 setupViewGestures();
 setupOriginDrag();

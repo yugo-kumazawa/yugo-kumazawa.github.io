@@ -78,11 +78,44 @@
   color: var(--text-muted);
   margin-bottom: 5px;
 }
-.field output {
-  color: var(--text);
+
+/* ラベルと数値入力を同じ行に。数値が常に見えていて、そのまま打ち替えられる。 */
+.field__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+}
+.field__head label {
+  margin-bottom: 0;
+  min-width: 0;      /* ラベルが縮めるようにしておく */
+}
+
+input[type="number"].num {
+  width: 76px;
+  flex: none;
+  padding: 3px 6px;
   font-family: var(--mono);
   font-size: 11px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
+/* 単独で置く数値入力は行いっぱいに広げる */
+input[type="number"].num--wide {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+/* 数値を打ち替えるほうが速い場面が多いので、増減ボタンは出さない */
+.num::-webkit-outer-spin-button,
+.num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"].num { -moz-appearance: textfield; }
 
 .hint {
   margin-top: 5px;
@@ -103,7 +136,9 @@ select {
 input[type="number"]:disabled { background: var(--surface-2); color: var(--text-muted); }
 
 input[type="range"] {
+  display: block;
   width: 100%;
+  margin-top: 4px;
   accent-color: var(--accent);
 }
 
