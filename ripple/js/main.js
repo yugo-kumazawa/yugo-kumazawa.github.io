@@ -50,12 +50,27 @@ let frameAtDragStart = null;
 
 // ---------------------------------------------------------------- 設定
 
-/** 数値項目を読む。空欄や読めない値のときは既定値に落とす。 */
+/**
+ * 数値項目を読む。空欄や読めない値のときは既定値に落とし、
+ * 入力欄自身の上下限に収める。
+ *
+ * 収めるのは、たとえば出力幅に 1 が入ったまま書き出すと、1px の画像が
+ * できて「真っ白」に見えるため。プレビューは常に画面に合わせて拡大するので、
+ * 出力寸法が壊れていても見た目では気づけない。
+ * 上下限はスライダーより広く取ってあるので、意図して大きな値を入れる
+ * ぶんには当たらない。
+ */
 function num(id) {
-  const raw = $(id)?.value.trim() ?? '';
+  const el = $(id);
+  const raw = el?.value.trim() ?? '';
   if (raw === '') return DEFAULTS[id];
+
   const v = Number(raw);
-  return Number.isFinite(v) ? v : DEFAULTS[id];
+  if (!Number.isFinite(v)) return DEFAULTS[id];
+
+  const min = el.min === '' ? -Infinity : Number(el.min);
+  const max = el.max === '' ? Infinity : Number(el.max);
+  return Math.min(max, Math.max(min, v));
 }
 
 function currentAspect() {
@@ -545,8 +560,13 @@ function updateInfo() {
   const first = latest.scales[0];
   const last = latest.scales[latest.scales.length - 1];
 
+  // プレビューは画面に合わせて拡大するので、出力寸法が小さくても見た目では分からない。
+  // 書き出してから気づくことになるので、ここで目立たせておく。
+  const tiny = w < 200 || h < 200;
   $('stageInfo').textContent =
-    `${w} × ${h} px ・ ${latest.scales.length} 段 ・ 倍率 ${first.toFixed(3)} → ${last.toFixed(3)}`;
+    `${w} × ${h} px ・ ${latest.scales.length} 段 ・ 倍率 ${first.toFixed(3)} → ${last.toFixed(3)}`
+    + (tiny ? ' ← 書き出しもこの寸法です' : '');
+  $('stageInfo').classList.toggle('is-warning', tiny);
 
   const mult = num('pngScale');
   $('pngSize').textContent = `書き出しサイズ ${Math.round(w * mult)} × ${Math.round(h * mult)} px`;
@@ -881,6 +901,18 @@ function setupInputs() {
     localStorage.removeItem(STORAGE_KEY);
     location.reload();
   });
+
+  // 入力を離れた時点で、欄の表示を実際に使われる値に合わせる。
+  // 打ち込んでいる途中は書き換えないので、1200 と打つ手を邪魔しない。
+  for (const el of document.querySelectorAll('#panel input[type="number"]')) {
+    el.addEventListener('blur', () => {
+      const settled = el.value.trim() === '' ? DEFAULTS[el.id] : num(el.id);
+      if (settled !== undefined && String(settled) !== el.value) {
+        el.value = String(settled);
+        schedule();
+      }
+    });
+  }
 
   window.addEventListener('resize', layout);
 }

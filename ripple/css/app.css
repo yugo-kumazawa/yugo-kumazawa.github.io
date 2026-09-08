@@ -472,6 +472,10 @@ input[type="color"] {
   font-size: 11px;
   color: var(--text-muted);
 }
+.stage__info.is-warning {
+  color: var(--danger);
+  font-weight: 600;
+}
 
 .stage__view {
   position: relative;
