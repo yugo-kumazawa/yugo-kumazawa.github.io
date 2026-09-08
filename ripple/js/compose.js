@@ -299,7 +299,16 @@ export function compose(sources, settings) {
   }
 
   const frame = computeFrame(bounds, origin, settings);
-  svg.setAttribute('viewBox', `${round(frame.x)} ${round(frame.y)} ${round(frame.w)} ${round(frame.h)}`);
+
+  // 出力の座標は 0 起点に置き直す。
+  //
+  // 枠は図形の位置しだいで負の座標から始まるが、読み込み側には viewBox の原点を
+  // 0,0 に振り直すものがあり（Illustrator など）、そのときクリップの矩形だけが
+  // 元の座標に取り残されると、マスクが作画から外れて中身が丸ごと消える。
+  // 中身をまとめてずらし、枠もマスクも 0 起点にしておけば、振り直しても動かない。
+  svg.setAttribute('viewBox', `0 0 ${round(frame.w)} ${round(frame.h)}`);
+  const box = { x: 0, y: 0, w: frame.w, h: frame.h };
+  layer.setAttribute('transform', `translate(${round(-frame.x)} ${round(-frame.y)})`);
 
   if (frameMode === 'fixed') {
     svg.setAttribute('width', Math.round(outputWidth));
@@ -313,17 +322,23 @@ export function compose(sources, settings) {
   // viewBox の外は画面上どのみち見えないが、それは「表示されていない」だけで
   // 図形自体は枠の外に伸びたまま。Illustrator などで開くとアートボードの外に
   // はみ出して残るので、切り取った状態で渡したいときはこれを入れる。
+  //
+  // マスクは、ずらす変換を持たない外側の g にかける。同じ要素に transform と
+  // clip-path を両方置くと、マスクをどちらの座標系で読むかが実装で割れる。
   if (clipToFrame) {
     const clip = document.createElementNS(SVG_NS, 'clipPath');
     clip.setAttribute('id', CLIP_ID);
-    clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
-    clip.appendChild(frameRect(frame));
+    clip.appendChild(frameRect(box));
     defs.appendChild(clip);
-    layer.setAttribute('clip-path', `url(#${CLIP_ID})`);
+
+    const clipped = document.createElementNS(SVG_NS, 'g');
+    clipped.setAttribute('clip-path', `url(#${CLIP_ID})`);
+    svg.replaceChild(clipped, layer);
+    clipped.appendChild(layer);
   }
 
   if (!transparentBackground) {
-    const rect = frameRect(frame);
+    const rect = frameRect(box);
     rect.setAttribute('fill', background);
     svg.insertBefore(rect, svg.firstChild);
   }
