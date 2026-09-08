@@ -254,6 +254,75 @@ input[type="color"] {
 }
 .chip:hover { background: var(--accent-weak); border-color: var(--accent); }
 .chip--add { margin-top: 8px; }
+/* サンプルの札は入り切りの切り替えなので、入っているものは見て分かるようにする */
+.chip.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* ---------------------------------------------------------- 図形の一覧 */
+
+.sources {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.source {
+  display: grid;
+  grid-template-columns: 16px 26px minmax(0, 1fr) repeat(3, 22px);
+  gap: 5px;
+  align-items: center;
+  padding: 3px 5px 3px 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--surface-2);
+}
+
+/* 何番目に重なるかは色の割り当てとずれるので、番号を出しておく */
+.source__order {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.source__thumb {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  background: var(--surface);
+  border-radius: 3px;
+}
+
+.source__name {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source__btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  line-height: 1;
+  cursor: pointer;
+}
+.source__btn:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+.source__btn:disabled { opacity: .25; cursor: default; }
 
 .notice {
   margin-top: 10px;

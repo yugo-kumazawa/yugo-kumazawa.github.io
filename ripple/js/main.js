@@ -3,7 +3,7 @@
  */
 
 import { loadSvgSource } from './svg-source.js';
-import { compose } from './compose.js';
+import { compose, stripPaint } from './compose.js';
 import { exportSvg, exportPng, safeName } from './exporter.js';
 
 const $ = (id) => document.getElementById(id);
@@ -36,8 +36,11 @@ const DEFAULTS = {
 /** プレビューの見え方。生成結果そのものとは別に持つ。 */
 const view = { zoom: 1, panX: 0, panY: 0 };
 
-let source = null;      // { group, viewBox }
-let sourceName = 'ripple';
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** 重ねる図形。内側の段から順にこの並びを繰り返す。 */
+let sources = [];       // { key, name, sampleName, group, viewBox, thumb }
+let nextSourceKey = 0;
 let stops = [...DEFAULT_STOPS];
 let latest = null;      // 直近の compose 結果
 let frameAtDragStart = null;
@@ -86,6 +89,7 @@ function readSettings() {
     opacityEnd: num('opacityEnd'),
 
     order: radio('order'),
+    normalizeSizes: $('normalizeSizes').checked,
     padding: num('padding'),
 
     background: $('background').value,
@@ -160,61 +164,191 @@ function renderStops() {
   });
 }
 
-// ---------------------------------------------------------------- 素の読み込み
+// ---------------------------------------------------------------- 図形の読み込み
 
-async function useSvgText(text, name) {
+function setNotice(message, isError = false) {
   const notice = $('notice');
-  try {
-    const loaded = loadSvgSource(text);
-    source = loaded;
-    sourceName = name;
-    $('sourceName').textContent = name;
-
-    if (loaded.warnings.length > 0) {
-      notice.textContent = loaded.warnings.join(' ');
-      notice.hidden = false;
-      notice.classList.remove('notice--error');
-    } else {
-      notice.hidden = true;
-    }
-    resetView();
-    render();
-  } catch (err) {
-    notice.textContent = err.message;
-    notice.hidden = false;
-    notice.classList.add('notice--error');
-  }
-}
-
-async function loadSample(name) {
-  try {
-    // 単一ファイル版ではサンプルが埋め込まれている。無ければ取りに行く。
-    const inline = globalThis.RIPPLE_SAMPLES?.[name];
-    let text = inline;
-    if (text === undefined) {
-      const res = await fetch(`samples/${name}.svg`);
-      if (!res.ok) throw new Error(`サンプルを取得できませんでした（${res.status}）。`);
-      text = await res.text();
-    }
-    await useSvgText(text, name);
-  } catch (err) {
-    const notice = $('notice');
-    notice.textContent = `${err.message} ローカルで開いている場合は、簡易サーバー経由で表示してください。`;
-    notice.hidden = false;
-    notice.classList.add('notice--error');
-  }
-}
-
-async function readFile(file) {
-  if (!file) return;
-  if (!/svg/i.test(file.type) && !/\.svg$/i.test(file.name)) {
-    const notice = $('notice');
-    notice.textContent = 'SVG ファイルを指定してください。';
-    notice.hidden = false;
-    notice.classList.add('notice--error');
+  if (!message) {
+    notice.hidden = true;
     return;
   }
-  await useSvgText(await file.text(), file.name);
+  notice.textContent = message;
+  notice.hidden = false;
+  notice.classList.toggle('notice--error', isError);
+}
+
+/**
+ * 一覧に出す見本。data URI の <img> にして、本体とは別の文書に閉じ込める。
+ * DOM に直に差すと、図形が持つ clipPath などの ID が二重になり、
+ * url(#…) の参照先が取り違えられる恐れがある。
+ */
+function buildThumb(group, viewBox) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('xmlns', SVG_NS);
+  svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`);
+
+  const clone = group.cloneNode(true);
+  stripPaint(clone);
+  clone.setAttribute('fill', '#5b6270');
+  svg.appendChild(clone);
+
+  const xml = new XMLSerializer().serializeToString(svg);
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
+}
+
+/** 読み込んで一覧の末尾に足す。読めなければ投げる。 */
+function addSource(text, name, sampleName) {
+  const loaded = loadSvgSource(text);
+  sources.push({
+    key: `s${nextSourceKey++}`,
+    name,
+    sampleName,
+    group: loaded.group,
+    viewBox: loaded.viewBox,
+    thumb: buildThumb(loaded.group, loaded.viewBox),
+  });
+  return loaded.warnings;
+}
+
+function afterSourcesChanged({ warnings = [], error = '' } = {}) {
+  renderSourceList();
+  markSampleChips();
+  setNotice(error || warnings.join(' '), Boolean(error));
+  resetView();
+  render();
+}
+
+async function sampleText(name) {
+  // 単一ファイル版ではサンプルが埋め込まれている。無ければ取りに行く。
+  const inline = globalThis.RIPPLE_SAMPLES?.[name];
+  if (inline !== undefined) return inline;
+
+  const res = await fetch(`samples/${name}.svg`);
+  if (!res.ok) {
+    throw new Error(
+      `サンプルを取得できませんでした（${res.status}）。` +
+      'ローカルで開いている場合は、簡易サーバー経由で表示してください。'
+    );
+  }
+  return res.text();
+}
+
+function sampleLabel(name) {
+  return document.querySelector(`[data-sample="${name}"]`)?.textContent?.trim() ?? name;
+}
+
+/** サンプルの札は入り切りの切り替え。押すたびに足したり外したりする。 */
+async function toggleSample(name) {
+  const at = sources.findIndex((src) => src.sampleName === name);
+  if (at !== -1) {
+    if (sources.length <= 1) {
+      setNotice('図形をすべて外すことはできません。', true);
+      return;
+    }
+    sources.splice(at, 1);
+    afterSourcesChanged();
+    return;
+  }
+  try {
+    const warnings = addSource(await sampleText(name), sampleLabel(name), name);
+    afterSourcesChanged({ warnings });
+  } catch (err) {
+    setNotice(err.message, true);
+  }
+}
+
+async function readFiles(list) {
+  const files = [...(list ?? [])]
+    .filter((f) => /svg/i.test(f.type) || /\.svg$/i.test(f.name));
+
+  if (files.length === 0) {
+    setNotice('SVG ファイルを指定してください。', true);
+    return;
+  }
+
+  const warnings = [];
+  const failed = [];
+  for (const file of files) {
+    try {
+      warnings.push(...addSource(await file.text(), file.name));
+    } catch (err) {
+      failed.push(`${file.name}: ${err.message}`);
+    }
+  }
+  afterSourcesChanged({ warnings, error: failed.join(' / ') });
+}
+
+function moveSource(from, delta) {
+  const to = from + delta;
+  if (to < 0 || to >= sources.length) return;
+  [sources[from], sources[to]] = [sources[to], sources[from]];
+  afterSourcesChanged();
+}
+
+function removeSource(at) {
+  if (sources.length <= 1) return;
+  sources.splice(at, 1);
+  afterSourcesChanged();
+}
+
+function renderSourceList() {
+  const host = $('sources');
+  host.textContent = '';
+
+  sources.forEach((src, i) => {
+    const row = document.createElement('li');
+    row.className = 'source';
+
+    const order = document.createElement('span');
+    order.className = 'source__order';
+    order.textContent = String(i + 1);
+
+    const thumb = document.createElement('img');
+    thumb.className = 'source__thumb';
+    thumb.src = src.thumb;
+    thumb.alt = '';
+
+    const name = document.createElement('span');
+    name.className = 'source__name';
+    name.textContent = src.name;
+    name.title = src.name;
+
+    row.append(order, thumb, name,
+      iconButton('↑', '上へ', i === 0, () => moveSource(i, -1)),
+      iconButton('↓', '下へ', i === sources.length - 1, () => moveSource(i, 1)),
+      iconButton('×', '取り除く', sources.length <= 1, () => removeSource(i)));
+
+    host.appendChild(row);
+  });
+
+  $('cycleHint').textContent = sources.length > 1
+    ? `内側から ${sources.map((s) => s.name).join(' → ')} の順に繰り返す。`
+    : '';
+}
+
+function iconButton(glyph, title, disabled, onClick) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'source__btn';
+  btn.textContent = glyph;
+  btn.title = title;
+  btn.setAttribute('aria-label', title);
+  btn.disabled = disabled;
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
+function markSampleChips() {
+  const used = new Set(sources.map((src) => src.sampleName).filter(Boolean));
+  for (const chip of document.querySelectorAll('[data-sample]')) {
+    chip.classList.toggle('is-active', used.has(chip.dataset.sample));
+    chip.setAttribute('aria-pressed', String(used.has(chip.dataset.sample)));
+  }
+}
+
+/** 書き出しのファイル名。図形が複数のときは先頭の名前を使う。 */
+function exportBaseName() {
+  return sources[0]?.name ?? 'ripple';
 }
 
 // ---------------------------------------------------------------- 描画
@@ -238,11 +372,11 @@ function schedule() {
 }
 
 function render() {
-  if (!source) return;
+  if (sources.length === 0) return;
 
   syncOutputs();
   const settings = readSettings();
-  latest = compose(source, settings);
+  latest = compose(sources, settings);
 
   const canvas = $('canvas');
   canvas.textContent = '';
@@ -421,7 +555,7 @@ function setupOriginDrag() {
   let drag = null;
 
   handle.addEventListener('pointerdown', (e) => {
-    if (!latest || !source) return;
+    if (!latest || sources.length === 0) return;
     e.preventDefault();
     e.stopPropagation();
     // フレームの中心を原点に合わせていると、動かすたびに枠まで動いて追いにくい。
@@ -437,13 +571,13 @@ function setupOriginDrag() {
   });
 
   handle.addEventListener('pointermove', (e) => {
-    if (!drag || !source) return;
+    if (!drag || sources.length === 0) return;
     const f = frameAtDragStart;
     // 画面上の移動量 → ユーザー座標 → viewBox に対する割合
     const perPxX = f.w / f.rect.width;
     const perPxY = f.h / f.rect.height;
-    const dx = (e.clientX - drag.x) * perPxX / source.viewBox.w;
-    const dy = (e.clientY - drag.y) * perPxY / source.viewBox.h;
+    const dx = (e.clientX - drag.x) * perPxX / sources[0].viewBox.w;
+    const dy = (e.clientY - drag.y) * perPxY / sources[0].viewBox.h;
 
     $('originX').value = (drag.originX + dx).toFixed(3);
     $('originY').value = (drag.originY + dy).toFixed(3);
@@ -478,6 +612,8 @@ function saveSettings() {
       pngScale: num('pngScale'),
       aspectW: num('aspectW'),
       aspectH: num('aspectH'),
+      // 読み込んだファイルは持ち越せないので、サンプルの選択だけを覚えておく
+      samples: sources.map((src) => src.sampleName).filter(Boolean),
     }));
   } catch {
     // 保存できなくても動作に支障はないので黙って続ける
@@ -527,6 +663,7 @@ function restoreSettings() {
   setValue('zoom', saved.zoom);
   setValue('outputWidth', saved.outputWidth);
   setChecked('constantStroke', saved.constantStroke);
+  setChecked('normalizeSizes', saved.normalizeSizes);
   setChecked('transparentBackground', saved.transparentBackground);
   setRadio('distribution', saved.distribution);
   setRadio('paintMode', saved.paintMode);
@@ -560,7 +697,7 @@ function setupInputs() {
   }
 
   for (const btn of document.querySelectorAll('[data-sample]')) {
-    btn.addEventListener('click', () => loadSample(btn.dataset.sample));
+    btn.addEventListener('click', () => toggleSample(btn.dataset.sample));
   }
 
   $('addStop').addEventListener('click', () => {
@@ -569,7 +706,10 @@ function setupInputs() {
     schedule();
   });
 
-  $('file').addEventListener('change', (e) => readFile(e.target.files[0]));
+  $('file').addEventListener('change', (e) => {
+    readFiles(e.target.files);
+    e.target.value = ''; // 同じファイルをもう一度選べるようにする
+  });
 
   const drop = $('drop');
   drop.addEventListener('click', () => $('file').click());
@@ -591,7 +731,7 @@ function setupInputs() {
       drop.classList.remove('is-over');
     });
   }
-  drop.addEventListener('drop', (e) => readFile(e.dataTransfer?.files?.[0]));
+  drop.addEventListener('drop', (e) => readFiles(e.dataTransfer?.files));
 
   $('fit').addEventListener('click', resetView);
   $('showOrigin').addEventListener('change', placeOriginHandle);
@@ -601,7 +741,7 @@ function setupInputs() {
     const btn = $('exportSvg');
     btn.disabled = true;
     try {
-      await exportSvg(latest.svg, safeName(sourceName, 'svg'));
+      await exportSvg(latest.svg, safeName(exportBaseName(), 'svg'));
     } catch (err) {
       showError(err.message);
     } finally {
@@ -613,7 +753,7 @@ function setupInputs() {
     const btn = $('exportPng');
     btn.disabled = true;
     try {
-      await exportPng(latest.svg, safeName(sourceName, 'png'), num('pngScale'));
+      await exportPng(latest.svg, safeName(exportBaseName(), 'png'), num('pngScale'));
     } catch (err) {
       showError(err.message);
     } finally {
@@ -629,6 +769,27 @@ function setupInputs() {
   window.addEventListener('resize', layout);
 }
 
+/** 起動時の図形。前回のサンプル選択があれば復元する。 */
+async function initSources() {
+  let wanted = ['burst'];
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if (Array.isArray(saved?.samples) && saved.samples.length > 0) wanted = saved.samples;
+  } catch {
+    // 読めなければ既定のまま
+  }
+
+  const warnings = [];
+  for (const name of wanted) {
+    try {
+      warnings.push(...addSource(await sampleText(name), sampleLabel(name), name));
+    } catch (err) {
+      setNotice(err.message, true);
+    }
+  }
+  if (sources.length > 0) afterSourcesChanged({ warnings });
+}
+
 restoreSettings();
 renderStops();
 markAnchorPreset();
@@ -636,4 +797,4 @@ setupRangePairs();
 setupInputs();
 setupViewGestures();
 setupOriginDrag();
-loadSample('burst');
+initSources();

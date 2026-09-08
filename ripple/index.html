@@ -24,16 +24,14 @@
   <aside class="panel" id="panel">
 
     <section class="group">
-      <h2 class="group__title">ソース</h2>
+      <h2 class="group__title">図形</h2>
 
       <div class="drop" id="drop" tabindex="0" role="button"
            aria-label="SVG ファイルを選択、またはドラッグ＆ドロップ">
         <strong>SVG をドロップ</strong>
-        <span>またはクリックして選択</span>
+        <span>まとめて複数えらべます</span>
       </div>
-      <input type="file" id="file" accept=".svg,image/svg+xml" hidden>
-
-      <p class="source-name" id="sourceName">サンプルを読み込み中…</p>
+      <input type="file" id="file" accept=".svg,image/svg+xml" multiple hidden>
 
       <div class="samples">
         <span class="samples__label">サンプル</span>
@@ -44,6 +42,15 @@
         <button type="button" class="chip" data-sample="petal">花弁</button>
         <button type="button" class="chip" data-sample="rounded">角丸</button>
       </div>
+
+      <ul class="sources" id="sources"></ul>
+      <p class="hint" id="cycleHint"></p>
+
+      <label class="check">
+        <input type="checkbox" id="normalizeSizes" checked>
+        <span>大きさを揃えてから重ねる</span>
+      </label>
+      <p class="hint">SVG ごとに viewBox の寸法が違うので、揃えないと図形の大小がばらつく。</p>
 
       <p class="notice" id="notice" hidden></p>
     </section>

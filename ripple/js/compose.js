@@ -1,9 +1,10 @@
 /**
  * 設定から出力用の SVG を組み立てる。
  *
- * 素は defs の中に 1 つだけ置き、各段は <use> で参照する。
- * 段数を増やしても中身は増えないので、100 段でも出力は軽いままで、
- * 書き出した SVG を後から編集するときも 1 か所直せば全段に効く。
+ * 素は defs の中に、読み込んだ図形ごとに 1 つずつ置く。各段は <use> で
+ * そのどれかを参照し、図形が複数あるときは内側から順に循環させる。
+ * 段数を増やしても defs の中身は増えないので、100 段でも出力は軽いままで、
+ * 書き出した SVG を後から編集するときも 1 か所直せば同じ図形の全段に効く。
  */
 
 import { scaleSeries, opacitySeries } from './series.js';
@@ -28,7 +29,7 @@ const DEG = Math.PI / 180;
  * 素の複製から、元々の塗り指定を取り除く。
  * これをやっておくと <use> 側に置いた fill / stroke が中まで継承される。
  */
-function stripPaint(root) {
+export function stripPaint(root) {
   for (const el of [root, ...root.querySelectorAll('*')]) {
     el.removeAttribute('fill');
     el.removeAttribute('stroke');
@@ -53,6 +54,45 @@ function applyNonScalingStroke(root) {
       el.setAttribute('vector-effect', 'non-scaling-stroke');
     }
   }
+}
+
+/**
+ * 図形ごとの素をつくる。塗りの除去や線の扱いはここでまとめてかける。
+ */
+function prepareUnits(sources, settings, reference) {
+  return sources.map((source, i) => {
+    const unit = source.group.cloneNode(true);
+    unit.setAttribute('id', `${UNIT_ID}-${i}`);
+    if (settings.paintMode !== 'original') stripPaint(unit);
+    if (settings.constantStroke) applyNonScalingStroke(unit);
+
+    if (settings.normalizeSizes) {
+      const fit = fitTransform(source.viewBox, reference);
+      if (fit) unit.setAttribute('transform', fit);
+    }
+    return unit;
+  });
+}
+
+/**
+ * 図形の箱を基準の箱の中央へ、縦横比を保ったまま収める変換。
+ *
+ * 別々に作った SVG は viewBox の大きさがまちまちで、そのまま重ねると
+ * 図形の大小がばらばらになって「交互に重なる」形にならない。
+ * ここで下ごしらえとして揃えておき、倍率の系列はその上に乗せる。
+ */
+function fitTransform(box, ref) {
+  const same = box.x === ref.x && box.y === ref.y && box.w === ref.w && box.h === ref.h;
+  if (same) return null;
+
+  const k = Math.min(ref.w / box.w, ref.h / box.h);
+  if (!Number.isFinite(k) || k <= 0) return null;
+
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const rx = ref.x + ref.w / 2;
+  const ry = ref.y + ref.h / 2;
+  return `translate(${round(rx)} ${round(ry)}) scale(${round(k)}) translate(${round(-cx)} ${round(-cy)})`;
 }
 
 /**
@@ -153,14 +193,16 @@ function computeFrame(bounds, origin, settings) {
 }
 
 /**
- * @param {{group:SVGGElement, viewBox:object}} source
+ * @param {Array<{group:SVGGElement, viewBox:object}>} sources 内側から順に循環させる図形
  * @param {object} settings
  */
-export function compose(source, settings) {
+export function compose(sources, settings) {
+  if (sources.length === 0) throw new Error('図形がありません。');
+
   const {
     count, scaleStart, scaleEnd, distribution, rotationStep,
     originX, originY,
-    paintMode, strokeWidth, constantStroke,
+    paintMode, strokeWidth,
     colorStops, colorMode, colorSpace,
     opacityStart, opacityEnd,
     order,
@@ -168,43 +210,44 @@ export function compose(source, settings) {
     frameMode, outputWidth, aspect,
   } = settings;
 
-  const vb = source.viewBox;
+  // 倍率も原点も 1 つ目の図形の箱を基準にする。
+  // 図形を足しても基準が動かないので、構図が勝手に崩れることはない。
+  const reference = sources[0].viewBox;
+
   const scales = scaleSeries({ count, start: scaleStart, end: scaleEnd, distribution });
   const colors = buildColors(colorStops, scales.length, colorMode, colorSpace);
   const opacities = opacitySeries({ count: scales.length, start: opacityStart, end: opacityEnd });
 
-  // 原点は viewBox に対する割合で持つ。素を差し替えても同じ位置を指すようにするため。
-  const ox = vb.x + originX * vb.w;
-  const oy = vb.y + originY * vb.h;
+  // 原点は基準の箱に対する割合で持つ。図形を差し替えても同じ位置を指すようにするため。
+  const ox = reference.x + originX * reference.w;
+  const oy = reference.y + originY * reference.h;
   const origin = { x: ox, y: oy };
 
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('xmlns', SVG_NS);
 
-  const unit = source.group.cloneNode(true);
-  unit.setAttribute('id', UNIT_ID);
-  if (paintMode !== 'original') stripPaint(unit);
-  if (constantStroke) applyNonScalingStroke(unit);
-
+  const units = prepareUnits(sources, settings, reference);
   const defs = document.createElementNS(SVG_NS, 'defs');
-  defs.appendChild(unit);
+  for (const unit of units) defs.appendChild(unit);
   svg.appendChild(defs);
 
   const layer = document.createElementNS(SVG_NS, 'g');
   layer.setAttribute('id', 'ripple-copies');
 
-  // 段の並びと描画順は別物。色と倍率の対応は保ったまま、重なりの前後だけ入れ替える。
+  // 段の並びと描画順は別物。図形・色・倍率の対応は保ったまま、重なりの前後だけ入れ替える。
   const indices = scales.map((_, i) => i);
   indices.sort((a, b) => (order === 'outer-first' ? scales[b] - scales[a] : scales[a] - scales[b]));
 
   for (const i of indices) {
     const s = scales[i];
     const angle = i * rotationStep;
+    const unitId = `${UNIT_ID}-${i % units.length}`;
+
     const use = document.createElementNS(SVG_NS, 'use');
-    use.setAttribute('href', `#${UNIT_ID}`);
+    use.setAttribute('href', `#${unitId}`);
     // SVG 1.1 しか解さない読み手（Illustrator など）は xlink:href しか見ない。
     // 両方書いておかないと、そうしたアプリでは中身が空のまま開く。
-    use.setAttributeNS(XLINK_NS, 'xlink:href', `#${UNIT_ID}`);
+    use.setAttributeNS(XLINK_NS, 'xlink:href', `#${unitId}`);
 
     // 原点を動かさずに回して拡大するので、原点へ寄せて変換して戻す
     const parts = [`translate(${round(ox)} ${round(oy)})`];
@@ -237,7 +280,7 @@ export function compose(source, settings) {
 
   // 枠を決めるには全段の実寸が要るので、先に組み立ててから測る。
   const transforms = scales.map((scale, i) => ({ ox, oy, scale, angle: i * rotationStep }));
-  let bounds = measureLayer(svg, layer) ?? unionBounds(vb, transforms);
+  let bounds = measureLayer(svg, layer) ?? unionBounds(reference, transforms);
 
   // getBBox は線幅を含まないので、線を塗るときは半分だけ広げておく
   if (paintMode === 'stroke' || paintMode === 'both') {
@@ -266,14 +309,16 @@ export function compose(source, settings) {
     svg.insertBefore(rect, svg.firstChild);
   }
 
-  return { svg, frame, bounds, scales, colors, origin };
+  return { svg, frame, bounds, scales, colors, origin, unitCount: units.length };
 }
 
 /** 出力 SVG を単体のファイルとして通用する文字列にする。 */
 export function serialize(svg) {
   const clone = svg.cloneNode(true);
   clone.setAttribute('xmlns', SVG_NS);
-  clone.setAttribute('xmlns:xlink', XLINK_NS);
+  // 平文の属性として置くとシリアライザが名前空間の宣言と見なさず、
+  // <use> ひとつずつに xmlns:xlink を付け直してしまう。宣言として置く。
+  clone.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:xlink', XLINK_NS);
 
   // プレビューは画面に収めるため style で寸法を上書きしている。
   // それが残ると width / height 属性より強く効いてしまうので、外に出す前に落とす。
