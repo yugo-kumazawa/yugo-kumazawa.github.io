@@ -7,12 +7,13 @@
  * 書き出した SVG を後から編集するときも 1 か所直せば同じ図形の全段に効く。
  */
 
-import { scaleSeries, opacitySeries } from './series.js';
+import { scaleSeries, opacitySeries, angleSeries } from './series.js';
 import { buildColors } from './color.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XLINK_NS = 'http://www.w3.org/1999/xlink';
 const UNIT_ID = 'ripple-unit';
+const CLIP_ID = 'ripple-frame';
 
 /** vector-effect は継承されないので、図形要素に直接付ける必要がある。 */
 const SHAPE_TAGS = new Set([
@@ -200,14 +201,15 @@ export function compose(sources, settings) {
   if (sources.length === 0) throw new Error('図形がありません。');
 
   const {
-    count, scaleStart, scaleEnd, distribution, rotationStep,
+    count, scaleStart, scaleEnd, distribution,
+    rotationStep, randomizeAngle, angleMin, angleMax, angleSeed,
     originX, originY,
     paintMode, strokeWidth,
     colorStops, colorMode, colorSpace,
     opacityStart, opacityEnd,
     order,
     background, transparentBackground,
-    frameMode, outputWidth, aspect,
+    frameMode, outputWidth, aspect, clipToFrame,
   } = settings;
 
   // 倍率も原点も 1 つ目の図形の箱を基準にする。
@@ -215,6 +217,14 @@ export function compose(sources, settings) {
   const reference = sources[0].viewBox;
 
   const scales = scaleSeries({ count, start: scaleStart, end: scaleEnd, distribution });
+  const angles = angleSeries({
+    count: scales.length,
+    step: rotationStep,
+    randomize: randomizeAngle,
+    min: angleMin,
+    max: angleMax,
+    seed: angleSeed,
+  });
   const colors = buildColors(colorStops, scales.length, colorMode, colorSpace);
   const opacities = opacitySeries({ count: scales.length, start: opacityStart, end: opacityEnd });
 
@@ -240,7 +250,7 @@ export function compose(sources, settings) {
 
   for (const i of indices) {
     const s = scales[i];
-    const angle = i * rotationStep;
+    const angle = angles[i];
     const unitId = `${UNIT_ID}-${i % units.length}`;
 
     const use = document.createElementNS(SVG_NS, 'use');
@@ -279,7 +289,7 @@ export function compose(sources, settings) {
   svg.appendChild(layer);
 
   // 枠を決めるには全段の実寸が要るので、先に組み立ててから測る。
-  const transforms = scales.map((scale, i) => ({ ox, oy, scale, angle: i * rotationStep }));
+  const transforms = scales.map((scale, i) => ({ ox, oy, scale, angle: angles[i] }));
   let bounds = measureLayer(svg, layer) ?? unionBounds(reference, transforms);
 
   // getBBox は線幅を含まないので、線を塗るときは半分だけ広げておく
@@ -299,17 +309,36 @@ export function compose(sources, settings) {
     svg.setAttribute('height', round(frame.h));
   }
 
+  // 枠からはみ出した段を、実体のあるクリッピングマスクで切り取る。
+  // viewBox の外は画面上どのみち見えないが、それは「表示されていない」だけで
+  // 図形自体は枠の外に伸びたまま。Illustrator などで開くとアートボードの外に
+  // はみ出して残るので、切り取った状態で渡したいときはこれを入れる。
+  if (clipToFrame) {
+    const clip = document.createElementNS(SVG_NS, 'clipPath');
+    clip.setAttribute('id', CLIP_ID);
+    clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+    clip.appendChild(frameRect(frame));
+    defs.appendChild(clip);
+    layer.setAttribute('clip-path', `url(#${CLIP_ID})`);
+  }
+
   if (!transparentBackground) {
-    const rect = document.createElementNS(SVG_NS, 'rect');
-    rect.setAttribute('x', round(frame.x));
-    rect.setAttribute('y', round(frame.y));
-    rect.setAttribute('width', round(frame.w));
-    rect.setAttribute('height', round(frame.h));
+    const rect = frameRect(frame);
     rect.setAttribute('fill', background);
     svg.insertBefore(rect, svg.firstChild);
   }
 
-  return { svg, frame, bounds, scales, colors, origin, unitCount: units.length };
+  return { svg, frame, bounds, scales, angles, colors, origin, unitCount: units.length };
+}
+
+/** 枠とぴったり同じ矩形。背景とクリッピングの両方で使う。 */
+function frameRect(frame) {
+  const rect = document.createElementNS(SVG_NS, 'rect');
+  rect.setAttribute('x', round(frame.x));
+  rect.setAttribute('y', round(frame.y));
+  rect.setAttribute('width', round(frame.w));
+  rect.setAttribute('height', round(frame.h));
+  return rect;
 }
 
 /** 出力 SVG を単体のファイルとして通用する文字列にする。 */

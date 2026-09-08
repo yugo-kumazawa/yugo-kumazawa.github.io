@@ -197,6 +197,15 @@ input[type="color"] {
 }
 .seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
 
+/* 見出しのチェックにぶら下がる設定のまとまり */
+.subfield {
+  margin: 8px 0 0 20px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+.subfield[hidden] { display: none; }
+.subfield .field--pair { margin-bottom: 8px; }
+
 /* ---------------------------------------------------------- ソース */
 
 .drop {
@@ -289,7 +298,10 @@ input[type="color"] {
   font-size: 10px;
   color: var(--text-muted);
   text-align: center;
+  width: 100%;
+  height: 100%;
 }
+.source__order:hover { color: var(--text); }
 
 .source__thumb {
   width: 26px;
@@ -347,9 +359,10 @@ input[type="color"] {
 }
 .stop {
   display: grid;
-  grid-template-columns: 40px 1fr 26px;
+  grid-template-columns: 20px 40px 1fr 26px;
   gap: 6px;
   align-items: center;
+  border-radius: var(--radius-s);
 }
 .stop input[type="color"] { height: 28px; }
 .stop__hex {
@@ -368,6 +381,39 @@ input[type="color"] {
 }
 .stop__remove:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
 .stop__remove:disabled { opacity: .35; cursor: default; }
+
+/* ---------------------------------------------------------- 並べ替えの取っ手 */
+
+.handle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--line-strong);
+  cursor: grab;
+  line-height: 1;
+  touch-action: none;
+}
+.handle:hover { color: var(--text-muted); }
+.handle:active { cursor: grabbing; }
+
+/* 取っ手そのものの模様。中身の文字を持たない色の行だけに出す。
+   点を描くのは padding の内側だけなので、掴める面は広いまま模様は 2 列に収まる。 */
+.stop .handle {
+  width: 100%;
+  height: 26px;
+  padding: 4px 6px;
+  background-image: radial-gradient(currentColor 1px, transparent 1px);
+  background-size: 4px 4px;
+  background-position: center;
+  background-origin: content-box;
+  background-clip: content-box;
+}
+
+.is-dragging { opacity: .4; }
+
+/* 落とす先の目印。行の上辺か下辺に線を引く。 */
+.is-drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.is-drop-after  { box-shadow: inset 0 -2px 0 var(--accent); }
 
 /* ---------------------------------------------------------- 原点プリセット */
 

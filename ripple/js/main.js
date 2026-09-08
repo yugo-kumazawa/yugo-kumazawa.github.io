@@ -20,6 +20,9 @@ const DEFAULTS = {
   scaleStart: 0.12,
   scaleEnd: 1,
   rotationStep: 8,
+  angleMin: -15,
+  angleMax: 15,
+  angleSeed: 1,
   originX: 0.5,
   originY: 0.5,
   strokeWidth: 2,
@@ -74,6 +77,10 @@ function readSettings() {
     scaleEnd: num('scaleEnd'),
     distribution: radio('distribution'),
     rotationStep: num('rotationStep'),
+    randomizeAngle: $('randomizeAngle').checked,
+    angleMin: num('angleMin'),
+    angleMax: num('angleMax'),
+    angleSeed: Math.max(0, Math.round(num('angleSeed'))),
 
     originX: num('originX'),
     originY: num('originY'),
@@ -95,6 +102,7 @@ function readSettings() {
     background: $('background').value,
     transparentBackground: $('transparentBackground').checked,
 
+    clipToFrame: $('clipToFrame').checked,
     frameMode: aspect === null ? 'auto' : 'fixed',
     aspect: aspect ?? 1,
     zoom: num('zoom'),
@@ -105,6 +113,81 @@ function readSettings() {
 
 function radio(name) {
   return document.querySelector(`input[name="${name}"]:checked`)?.value;
+}
+
+// ---------------------------------------------------------------- 並べ替え
+
+/** いま掴んでいる行。dragover では dataTransfer を読めないので変数で持つ。 */
+let dragging = null;
+
+function moveItem(list, from, to) {
+  if (to < 0 || to >= list.length || from === to) return false;
+  const [item] = list.splice(from, 1);
+  list.splice(to, 0, item);
+  return true;
+}
+
+function clearDropMarks() {
+  for (const el of document.querySelectorAll('.is-drop-before, .is-drop-after')) {
+    el.classList.remove('is-drop-before', 'is-drop-after');
+  }
+}
+
+/**
+ * 行を掴んで並べ替えられるようにする。
+ *
+ * draggable にするのは取っ手を押している間だけ。行ごと常時 draggable にすると、
+ * 中の入力欄で文字を選ぶだけでドラッグが始まってしまう。
+ * 取っ手は button なので、上下キーでも動かせる。
+ */
+function attachReorder({ row, handle, index, list, onMove }) {
+  handle.addEventListener('pointerdown', () => { row.draggable = true; });
+  handle.addEventListener('pointerup', () => { row.draggable = false; });
+  handle.addEventListener('keydown', (e) => {
+    const delta = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+    if (delta === 0) return;
+    e.preventDefault();
+    onMove(index, index + delta);
+  });
+
+  row.addEventListener('dragstart', (e) => {
+    dragging = { list, index };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index)); // 中身が空だと始まらない環境がある
+    row.classList.add('is-dragging');
+  });
+
+  row.addEventListener('dragend', () => {
+    row.draggable = false;
+    dragging = null;
+    row.classList.remove('is-dragging');
+    clearDropMarks();
+  });
+
+  row.addEventListener('dragover', (e) => {
+    if (dragging?.list !== list || dragging.index === index) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    clearDropMarks();
+    row.classList.add(dragging.index < index ? 'is-drop-after' : 'is-drop-before');
+  });
+
+  row.addEventListener('drop', (e) => {
+    if (dragging?.list !== list) return;
+    e.preventDefault();
+    const from = dragging.index;
+    clearDropMarks();
+    onMove(from, index);
+  });
+}
+
+function dragHandle(label) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'handle';
+  btn.title = `${label}（ドラッグ、または上下キーで並べ替え）`;
+  btn.setAttribute('aria-label', btn.title);
+  return btn;
 }
 
 // ---------------------------------------------------------------- 色の停止
@@ -159,7 +242,20 @@ function renderStops() {
       schedule();
     });
 
-    row.append(picker, text, remove);
+    const handle = dragHandle(`色 ${i + 1}`);
+    row.append(handle, picker, text, remove);
+    attachReorder({
+      row,
+      handle,
+      index: i,
+      list: 'stops',
+      onMove: (from, to) => {
+        if (!moveItem(stops, from, to)) return;
+        renderStops();
+        schedule();
+      },
+    });
+
     host.appendChild(row);
   });
 }
@@ -279,10 +375,7 @@ async function readFiles(list) {
 }
 
 function moveSource(from, delta) {
-  const to = from + delta;
-  if (to < 0 || to >= sources.length) return;
-  [sources[from], sources[to]] = [sources[to], sources[from]];
-  afterSourcesChanged();
+  if (moveItem(sources, from, from + delta)) afterSourcesChanged();
 }
 
 function removeSource(at) {
@@ -299,8 +392,9 @@ function renderSourceList() {
     const row = document.createElement('li');
     row.className = 'source';
 
-    const order = document.createElement('span');
-    order.className = 'source__order';
+    // 番号札がそのまま取っ手。何番目に重なるかを示しつつ掴める。
+    const order = dragHandle(src.name);
+    order.classList.add('source__order');
     order.textContent = String(i + 1);
 
     const thumb = document.createElement('img');
@@ -317,6 +411,16 @@ function renderSourceList() {
       iconButton('↑', '上へ', i === 0, () => moveSource(i, -1)),
       iconButton('↓', '下へ', i === sources.length - 1, () => moveSource(i, 1)),
       iconButton('×', '取り除く', sources.length <= 1, () => removeSource(i)));
+
+    attachReorder({
+      row,
+      handle: order,
+      index: i,
+      list: 'sources',
+      onMove: (from, to) => {
+        if (moveItem(sources, from, to)) afterSourcesChanged();
+      },
+    });
 
     host.appendChild(row);
   });
@@ -460,6 +564,8 @@ function syncOutputs() {
   $('strokeField').hidden = paint === 'fill' || paint === 'original';
   $('colorField').hidden = paint === 'original';
   $('colorModeField').hidden = paint === 'original';
+
+  $('angleRandomField').hidden = !$('randomizeAngle').checked;
 
   const isAuto = $('aspectPreset').value === 'auto';
   $('customAspectField').hidden = $('aspectPreset').value !== 'custom';
@@ -650,6 +756,9 @@ function restoreSettings() {
   setValue('scaleStart', saved.scaleStart);
   setValue('scaleEnd', saved.scaleEnd);
   setValue('rotationStep', saved.rotationStep);
+  setValue('angleMin', saved.angleMin);
+  setValue('angleMax', saved.angleMax);
+  setValue('angleSeed', saved.angleSeed);
   setValue('originX', saved.originX);
   setValue('originY', saved.originY);
   setValue('strokeWidth', saved.strokeWidth);
@@ -664,6 +773,8 @@ function restoreSettings() {
   setValue('outputWidth', saved.outputWidth);
   setChecked('constantStroke', saved.constantStroke);
   setChecked('normalizeSizes', saved.normalizeSizes);
+  setChecked('randomizeAngle', saved.randomizeAngle);
+  setChecked('clipToFrame', saved.clipToFrame);
   setChecked('transparentBackground', saved.transparentBackground);
   setRadio('distribution', saved.distribution);
   setRadio('paintMode', saved.paintMode);
@@ -699,6 +810,11 @@ function setupInputs() {
   for (const btn of document.querySelectorAll('[data-sample]')) {
     btn.addEventListener('click', () => toggleSample(btn.dataset.sample));
   }
+
+  $('reroll').addEventListener('click', () => {
+    $('angleSeed').value = String(Math.floor(Math.random() * 1_000_000));
+    schedule();
+  });
 
   $('addStop').addEventListener('click', () => {
     stops.push(stops[stops.length - 1] ?? '#888888');

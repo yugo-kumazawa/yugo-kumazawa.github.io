@@ -37,6 +37,45 @@ export function scaleSeries({ count, start, end, distribution }) {
   return out;
 }
 
+/**
+ * 種から決まる疑似乱数。Mulberry32。
+ *
+ * Math.random では、他の項目をいじるたびに角度が振り直されてしまい、
+ * 気に入った崩れ方を保ったまま段数や色を詰める、という作業ができない。
+ * 種を明示的に持たせて、同じ種なら同じ結果になるようにしている。
+ */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * 段ごとの角度。基準は「1 段ごとに step を足す」で、
+ * ランダムを入れた場合はその上に min〜max の範囲の角度を重ねる。
+ *
+ * @param {{count:number, step:number, randomize:boolean,
+ *          min:number, max:number, seed:number}} opts
+ * @returns {number[]}
+ */
+export function angleSeries({ count, step, randomize, min, max, seed }) {
+  const n = Math.max(1, Math.floor(count));
+  const rand = randomize ? mulberry32(seed) : null;
+  const lo = Math.min(min, max);
+  const hi = Math.max(min, max);
+
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    // 乱数は必ず段の順に引く。順序が変わると同じ種でも結果が変わってしまう。
+    out[i] = i * step + (rand ? lo + rand() * (hi - lo) : 0);
+  }
+  return out;
+}
+
 /** 段ごとの不透明度。両端を指定して線形に配る。 */
 export function opacitySeries({ count, start, end }) {
   const n = Math.max(1, Math.floor(count));

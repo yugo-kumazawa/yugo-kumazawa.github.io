@@ -104,6 +104,39 @@
       </div>
 
       <div class="field">
+        <label class="check">
+          <input type="checkbox" id="randomizeAngle">
+          <span>角度をランダムにする</span>
+        </label>
+
+        <div class="subfield" id="angleRandomField" hidden>
+          <div class="field--pair">
+            <div>
+              <div class="field__head"><label for="angleMin">最小 °</label></div>
+              <input type="number" class="num num--wide" id="angleMin"
+                     min="-360" max="360" step="0.1" value="-15">
+            </div>
+            <div>
+              <div class="field__head"><label for="angleMax">最大 °</label></div>
+              <input type="number" class="num num--wide" id="angleMax"
+                     min="-360" max="360" step="0.1" value="15">
+            </div>
+          </div>
+
+          <div class="field__head">
+            <label for="angleSeed">乱数の種</label>
+            <input type="number" class="num" id="angleSeed" min="0" max="999999" step="1" value="1">
+          </div>
+          <button type="button" class="chip chip--add" id="reroll">振り直す</button>
+
+          <p class="hint">
+            段ごとの回転に、この範囲の角度を足す。種が同じなら結果も同じなので、
+            気に入った崩れ方を保ったまま他の項目を詰められる。
+          </p>
+        </div>
+      </div>
+
+      <div class="field">
         <span class="field__label">描画順</span>
         <div class="seg" role="radiogroup" aria-label="描画順">
           <label><input type="radio" name="order" value="outer-first" checked><span>大きい順</span></label>
@@ -277,6 +310,18 @@
         </div>
         <input type="range" id="outputWidthRange" min="200" max="4000" step="10" value="1200"
                aria-label="出力幅（スライダー）">
+      </div>
+
+      <div class="field">
+        <label class="check">
+          <input type="checkbox" id="clipToFrame" checked>
+          <span>はみ出しをクリッピングマスクで切り取る</span>
+        </label>
+        <p class="hint">
+          画面上は枠の外が見えないだけで、図形自体は外へ伸びたまま。
+          入れておくと切り取った状態で書き出され、Illustrator などでも
+          アートボードからはみ出さない。
+        </p>
       </div>
 
       <div class="field field--pair">
